@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import dash
-from dash import Dash, Input, Output, State, callback_context, dcc, html, no_update
+from dash import ALL, Dash, Input, Output, State, callback_context, dcc, html, no_update
 import dash_bootstrap_components as dbc
 
 
@@ -15,16 +16,27 @@ import dash_bootstrap_components as dbc
 APP_TITLE = "AI Automation Decision Framework"
 HYBRID_THRESHOLD = 2
 
-ARCH_AUTOMATION = "Automation"
+ARCH_PROCESS = "Process Clarification or Manual Improvement First"
+ARCH_ANALYTICS = "Traditional Analytics / Decision Support"
+ARCH_AUTOMATION = "Deterministic Automation"
 ARCH_ML = "Machine Learning"
-ARCH_LLM = "LLM"
+ARCH_LLM = "LLM-Assisted Workflow"
 ARCH_HYBRID = "Hybrid"
-ARCH_NOT_READY = "Prerequisites Needed Before Automation"
+ARCH_NOT_READY = "Prerequisites Needed Before Implementation"
+
+FIT_ARCHITECTURES = [
+    ARCH_ANALYTICS,
+    ARCH_AUTOMATION,
+    ARCH_ML,
+    ARCH_LLM,
+]
 
 SECTION_ORDER = [
+    "problem_value",
     "organizational_context",
     "problem_structure",
     "output_requirements",
+    "human_use",
     "risk_governance",
 ]
 
@@ -34,6 +46,37 @@ SECTION_ORDER = [
 # =========================================================
 
 QUESTIONS: Dict[str, Dict[str, Any]] = {
+    "q0_problem_definition": {
+        "section": "problem_value",
+        "title": "How clearly is the problem this project should solve defined?",
+        "help": "A technology recommendation is only useful when the underlying business problem is clear.",
+        "options": [
+            ("clear", "Clear - the problem, affected users, and desired outcome are documented"),
+            ("partial", "Partial - the general issue is known, but important details are still unclear"),
+            ("unclear", "Unclear - the project is currently driven more by interest in technology than by a defined problem"),
+        ],
+    },
+    "q0_success_metric": {
+        "section": "problem_value",
+        "title": "Is there a measurable success metric for this project?",
+        "help": "Examples include reduced processing time, improved prediction accuracy, fewer manual errors, or higher completion rates.",
+        "options": [
+            ("defined", "Yes - a baseline and target measure are defined"),
+            ("partial", "Partially - intended value is understood, but the baseline or target is not finalized"),
+            ("none", "No - success has not yet been defined measurably"),
+        ],
+    },
+    "q0_simpler_solution": {
+        "section": "problem_value",
+        "title": "Could a simpler solution reasonably address the problem before advanced AI is considered?",
+        "help": "Examples include clearer procedures, dashboard reporting, deterministic business rules, form redesign, or workflow automation.",
+        "options": [
+            ("yes_process", "Yes - process clarification or manual improvement may be sufficient"),
+            ("yes_analytics", "Yes - reporting, dashboards, or analytics may be sufficient"),
+            ("possibly", "Possibly - simpler alternatives should be tested against more advanced options"),
+            ("no", "No - the problem appears to require prediction, language understanding, or adaptive behavior"),
+        ],
+    },
     "q1_ai_maturity": {
         "section": "organizational_context",
         "title": "How mature is your organization’s current use of AI?",
@@ -116,6 +159,38 @@ QUESTIONS: Dict[str, Dict[str, Any]] = {
             ("variation_ok", "No — variation in wording or explanation is acceptable"),
         ],
     },
+    "q8a_decision_authority": {
+        "section": "human_use",
+        "title": "What role will the system have in the final decision or action?",
+        "help": "Systems that advise or draft content create different risks than systems that independently approve, deny, route, or execute actions.",
+        "options": [
+            ("inform", "Inform - provide information or analysis for a human decision"),
+            ("recommend", "Recommend - suggest an action that a human reviews"),
+            ("draft", "Draft - generate content or classifications for human approval"),
+            ("execute", "Execute - take action automatically within defined rules"),
+            ("decide", "Decide - make consequential final decisions without routine human approval"),
+        ],
+    },
+    "q8b_human_override": {
+        "section": "human_use",
+        "title": "Can an accountable human review, override, or correct the system output?",
+        "help": "Meaningful human control is especially important for complex or high-impact systems.",
+        "options": [
+            ("always", "Yes - review and override are available when needed"),
+            ("limited", "Partially - override exists only in limited cases"),
+            ("no", "No - the system output will generally be final"),
+        ],
+    },
+    "q8c_user_training": {
+        "section": "human_use",
+        "title": "Will users be trained on appropriate use, limitations, and error handling?",
+        "help": "Training reduces misuse, overreliance, and incorrect interpretation of outputs.",
+        "options": [
+            ("planned", "Yes - training and usage guidance are planned"),
+            ("informal", "Partially - informal guidance may be available"),
+            ("none", "No - users are expected to adopt the tool without structured guidance"),
+        ],
+    },
     "q8_risk_exposure": {
         "section": "risk_governance",
         "title": "What would be the impact if the system produced an incorrect result?",
@@ -169,50 +244,67 @@ QUESTIONS: Dict[str, Dict[str, Any]] = {
 }
 
 SECTION_META = {
+    "problem_value": {
+        "title": "1. Problem Definition & Value",
+        "intro": "Clarify the business problem, expected value, and whether a simpler solution should be tested first.",
+    },
     "organizational_context": {
-        "title": "1. Organizational Context",
+        "title": "2. Organizational Context",
         "intro": "Evaluate whether the organization and project context support advanced AI systems.",
     },
     "problem_structure": {
-        "title": "2. Problem Structure",
+        "title": "3. Problem Structure",
         "intro": "Determine whether the problem requires probabilistic AI or could be solved with simpler automation.",
     },
     "output_requirements": {
-        "title": "3. Output Requirements",
+        "title": "4. Output Requirements",
         "intro": "Output constraints strongly determine the appropriate automation approach.",
     },
+    "human_use": {
+        "title": "5. Human Use & Decision Authority",
+        "intro": "Evaluate who will rely on the system and how much decision authority it should receive.",
+    },
     "risk_governance": {
-        "title": "4. Risk & Governance",
+        "title": "6. Risk & Governance",
         "intro": "Evaluate operational risk, explainability, governance, and cost considerations.",
     },
 }
 
 
+QUESTION_ORDER = [
+    "q0_problem_definition",
+    "q0_success_metric",
+    "q0_simpler_solution",
+    "q1_ai_maturity",
+    "q2_project_data_maturity",
+    "q3_change_readiness",
+    "q4_workflow_established",
+    "q4b_workflow_mappable",
+    "q5_input_type",
+    "q6_output_boundaries",
+    "q7_output_consistency",
+    "q8a_decision_authority",
+    "q8b_human_override",
+    "q8c_user_training",
+    "q8_risk_exposure",
+    "q9_explainability",
+    "q10_monitoring",
+    "q11_cost_justification",
+    "q12_build_model",
+]
+
+
 def section_questions(section_key: str, answers: Dict[str, Any]) -> List[str]:
-    base = [qk for qk, qv in QUESTIONS.items() if qv["section"] == section_key]
     ordered = []
-    for key in [
-        "q1_ai_maturity",
-        "q2_project_data_maturity",
-        "q3_change_readiness",
-        "q4_workflow_established",
-        "q4b_workflow_mappable",
-        "q5_input_type",
-        "q6_output_boundaries",
-        "q7_output_consistency",
-        "q8_risk_exposure",
-        "q9_explainability",
-        "q10_monitoring",
-        "q11_cost_justification",
-        "q12_build_model",
-    ]:
-        if key not in base:
+    for key in QUESTION_ORDER:
+        if QUESTIONS[key]["section"] != section_key:
             continue
-        if key == "q3_change_readiness" and answers.get("q1_ai_maturity") not in {"none", "pilot"}:
-            continue
+
         if key == "q4b_workflow_mappable" and answers.get("q4_workflow_established") == "no":
             continue
+
         ordered.append(key)
+
     return ordered
 
 
@@ -230,81 +322,72 @@ def all_visible_questions(answers: Dict[str, Any]) -> List[str]:
 ScoreDelta = Dict[str, int]
 
 
-def delta(automation: int = 0, ml: int = 0, llm: int = 0, not_ready: int = 0) -> ScoreDelta:
+def delta(
+    analytics: int = 0,
+    automation: int = 0,
+    ml: int = 0,
+    llm: int = 0,
+) -> ScoreDelta:
     return {
+        ARCH_ANALYTICS: analytics,
         ARCH_AUTOMATION: automation,
         ARCH_ML: ml,
         ARCH_LLM: llm,
-        ARCH_NOT_READY: not_ready,
     }
 
 
 SCORE_TABLES: Dict[str, Dict[str, ScoreDelta]] = {
-    "q2_project_data_maturity": {
-        "fragmented": delta(automation=1, ml=-2, not_ready=2),
-        "transform": delta(automation=1, ml=-1, not_ready=1),
-        "clean": delta(ml=1),
-        "governed": delta(ml=2),
-    },
-    "q3_change_readiness": {
-        "low": delta(ml=-2, llm=-2),
-        "moderate": delta(),
-        "high": delta(ml=1, llm=1),
+    "q0_simpler_solution": {
+        "yes_process": delta(),
+        "yes_analytics": delta(analytics=4),
+        "possibly": delta(analytics=1, automation=1),
+        "no": delta(),
     },
     "q4_workflow_established": {
-        "no": delta(automation=-1, not_ready=2),
-        "undocumented": delta(automation=1, not_ready=1),
+        "no": delta(),
+        "undocumented": delta(analytics=1, automation=1),
         "mapped": delta(automation=3),
     },
     "q4b_workflow_mappable": {
         "yes": delta(automation=2),
-        "partial": delta(automation=1),
-        "no": delta(automation=-1, not_ready=1),
+        "partial": delta(automation=1, llm=1),
+        "no": delta(llm=1),
     },
     "q5_input_type": {
-        "structured": delta(automation=1, ml=1),
-        "mixed": delta(automation=1, ml=1, llm=1),
-        "unstructured": delta(llm=2),
+        "structured": delta(analytics=2, automation=2, ml=1),
+        "mixed": delta(analytics=1, automation=1, ml=1, llm=1),
+        "unstructured": delta(llm=3),
     },
     "q6_output_boundaries": {
-        "closed": delta(automation=2, ml=2),
-        "bounded": delta(automation=1, ml=1),
-        "open": delta(llm=2),
+        "closed": delta(analytics=1, automation=3, ml=2),
+        "bounded": delta(analytics=1, automation=1, ml=2, llm=1),
+        "open": delta(llm=3),
     },
     "q7_output_consistency": {
-        "identical": delta(automation=2, ml=2, llm=-3),
-        "consistent": delta(automation=1, ml=1),
+        "identical": delta(analytics=1, automation=3, ml=1, llm=-4),
+        "consistent": delta(analytics=1, automation=1, ml=2),
         "variation_ok": delta(llm=2),
-    },
-    "q8_risk_exposure": {
-        "low": delta(),
-        "medium": delta(automation=1, ml=2, llm=-1),
-        "high": delta(automation=3, ml=1, llm=-2),
-    },
-    "q9_explainability": {
-        "required": delta(automation=2, ml=1, llm=-1),
-        "important": delta(automation=1, ml=1),
-        "not_required": delta(llm=1),
-    },
-    "q10_monitoring": {
-        "minimal": delta(automation=1),
-        "some": delta(ml=1),
-        "continuous": delta(llm=1),
-    },
-    "q11_cost_justification": {
-        "no": delta(automation=1, llm=-2, not_ready=1),
-        "possibly": delta(automation=1, ml=2),
-        "yes": delta(ml=1, llm=2),
-    },
-    "q12_build_model": {
-        "ops_ui": delta(automation=3),
-        "specialized_ml": delta(ml=2),
-        "software_eng": delta(automation=2, llm=2),
     },
 }
 
 
 EXPLANATION_TEMPLATES: Dict[str, Dict[str, str]] = {
+    "q0_problem_definition": {
+        "clear": "The business problem and desired outcome are clearly documented, allowing architecture selection to proceed.",
+        "partial": "The project goal is partly understood, but additional clarification may be needed before implementation.",
+        "unclear": "The project is not yet grounded in a clearly defined business problem, so technology selection would be premature.",
+    },
+    "q0_success_metric": {
+        "defined": "A measurable baseline and target outcome are defined, enabling meaningful pilot evaluation.",
+        "partial": "Expected value is understood, but the measurement approach should be finalized before implementation.",
+        "none": "No measurable success definition exists, so the organization cannot yet determine whether a technology improves outcomes.",
+    },
+    "q0_simpler_solution": {
+        "yes_process": "A process or manual improvement may adequately address the problem before technology complexity is introduced.",
+        "yes_analytics": "Traditional analytics or decision support may provide sufficient value without advanced AI.",
+        "possibly": "Simpler alternatives should be tested as baselines before selecting a more complex architecture.",
+        "no": "The use case appears to require capabilities beyond simple process or reporting improvements.",
+    },
     "q2_project_data_maturity": {
         "fragmented": "Project data is fragmented or inconsistent, which raises implementation risk for ML-heavy approaches and suggests prerequisite cleanup work.",
         "transform": "The project data exists but still requires transformation or consolidation, which may slow more advanced modeling efforts.",
@@ -340,6 +423,23 @@ EXPLANATION_TEMPLATES: Dict[str, Dict[str, str]] = {
         "identical": "You indicated outputs must be identical for the same inputs, which favors deterministic automation or bounded ML over generative systems.",
         "consistent": "You prefer consistency in outputs, which supports bounded automation or ML more than fully generative systems.",
         "variation_ok": "Variation in wording or explanation is acceptable, which increases the suitability of LLM-based approaches.",
+    },
+    "q8a_decision_authority": {
+        "inform": "The system will inform human decisions rather than making them, limiting autonomy-related risk.",
+        "recommend": "The system will recommend actions while preserving human decision authority.",
+        "draft": "The system will generate draft outputs that require human approval.",
+        "execute": "The system may execute actions automatically, increasing the need for controls and exception handling.",
+        "decide": "The system may make final decisions, creating substantial accountability and governance requirements.",
+    },
+    "q8b_human_override": {
+        "always": "Human review and override mechanisms are available, supporting meaningful control.",
+        "limited": "Human override exists only in limited cases, requiring careful control design.",
+        "no": "The absence of meaningful human override increases the risk of inappropriate automated decisions.",
+    },
+    "q8c_user_training": {
+        "planned": "Structured user training supports appropriate reliance and error handling.",
+        "informal": "Informal guidance may not adequately prevent misuse or overreliance.",
+        "none": "Users may be unprepared to interpret limitations or identify erroneous outputs.",
     },
     "q8_risk_exposure": {
         "low": "The downside of an incorrect output is relatively low, which leaves more flexibility in architecture choice.",
@@ -378,6 +478,9 @@ class EvaluationResult:
     confidence: str
     key_drivers: List[str]
     exclusions: List[str]
+    required_controls: List[str]
+    prerequisite_actions: List[str]
+    baseline_to_test: str
     tradeoffs: Dict[str, str]
     resources: List[str]
     phased_plan: List[str]
@@ -385,165 +488,288 @@ class EvaluationResult:
 
 
 TRADEOFFS = {
-    ARCH_AUTOMATION: {
-        "Build complexity": "Low–Medium",
+    ARCH_PROCESS: {
+        "Build complexity": "Minimal",
         "Operational risk": "Low",
-        "Maintenance burden": "Low–Medium",
-        "Governance requirement": "Low–Medium",
+        "Maintenance burden": "Low",
+        "Governance requirement": "Clarify ownership and measurement first",
+    },
+    ARCH_ANALYTICS: {
+        "Build complexity": "Low",
+        "Operational risk": "Low",
+        "Maintenance burden": "Low-Medium",
+        "Governance requirement": "Data quality and metric definitions",
+    },
+    ARCH_AUTOMATION: {
+        "Build complexity": "Low-Medium",
+        "Operational risk": "Low-Medium",
+        "Maintenance burden": "Low-Medium",
+        "Governance requirement": "Rules, exceptions, and audit logging",
     },
     ARCH_ML: {
         "Build complexity": "Medium",
         "Operational risk": "Medium",
         "Maintenance burden": "Medium",
-        "Governance requirement": "Medium",
+        "Governance requirement": "Model evaluation, monitoring, and review",
     },
     ARCH_LLM: {
         "Build complexity": "Medium",
-        "Operational risk": "Medium–High",
-        "Maintenance burden": "Medium–High",
-        "Governance requirement": "High",
+        "Operational risk": "Medium-High",
+        "Maintenance burden": "Medium-High",
+        "Governance requirement": "Prompt/output controls, monitoring, and human review",
     },
     ARCH_HYBRID: {
-        "Build complexity": "Medium–High",
+        "Build complexity": "Medium-High",
         "Operational risk": "Medium",
-        "Maintenance burden": "Medium–High",
-        "Governance requirement": "High",
+        "Maintenance burden": "Medium-High",
+        "Governance requirement": "Layered validation, audit logs, and human oversight",
     },
     ARCH_NOT_READY: {
         "Build complexity": "Not advised yet",
-        "Operational risk": "High if forced early",
+        "Operational risk": "High if implemented prematurely",
         "Maintenance burden": "High relative to value",
-        "Governance requirement": "Prerequisites needed first",
+        "Governance requirement": "Prerequisites must be completed first",
     },
 }
 
 
 def evaluate_answers(answers: Dict[str, Any]) -> EvaluationResult:
-    scores = {
-        ARCH_AUTOMATION: 0,
-        ARCH_ML: 0,
-        ARCH_LLM: 0,
-        ARCH_NOT_READY: 0,
-    }
+    scores = {arch: 0 for arch in FIT_ARCHITECTURES}
     key_drivers: List[str] = []
     exclusions: List[str] = []
+    required_controls: List[str] = []
+    prerequisite_actions: List[str] = []
+
     why_not = {
+        ARCH_ANALYTICS: [],
         ARCH_AUTOMATION: [],
         ARCH_ML: [],
         ARCH_LLM: [],
     }
 
-    # Apply score tables
+    for q_key, answer in answers.items():
+        text = EXPLANATION_TEMPLATES.get(q_key, {}).get(answer)
+        if text:
+            key_drivers.append(text)
+
+    problem_unclear = answers.get("q0_problem_definition") == "unclear"
+    metric_missing = answers.get("q0_success_metric") == "none"
+    process_first = answers.get("q0_simpler_solution") == "yes_process"
+
+    if problem_unclear or metric_missing or process_first:
+        if problem_unclear:
+            prerequisite_actions.append(
+                "Define the business problem, affected users, desired outcome, and decision owner before selecting technology."
+            )
+        if metric_missing:
+            prerequisite_actions.append(
+                "Establish a measurable baseline and target outcome before evaluating implementation options."
+            )
+        if process_first:
+            prerequisite_actions.append(
+                "Test process clarification or manual improvement before introducing automation or AI complexity."
+            )
+
+        return build_gated_result(
+            recommendation_label=ARCH_PROCESS,
+            scores=scores,
+            answers=answers,
+            key_drivers=key_drivers,
+            exclusions=exclusions,
+            required_controls=required_controls,
+            prerequisite_actions=prerequisite_actions,
+            baseline_to_test="Current manual process or clarified workflow baseline",
+        )
+
+    data_fragmented = answers.get("q2_project_data_maturity") == "fragmented"
+    workflow_missing = answers.get("q4_workflow_established") == "no"
+    readiness_low = answers.get("q3_change_readiness") == "low"
+
+    if data_fragmented:
+        prerequisite_actions.append(
+            "Clean, consolidate, and document project data before relying on model-driven outputs."
+        )
+
+    if workflow_missing:
+        prerequisite_actions.append(
+            "Map the current process and clarify decision points before automating workflow execution."
+        )
+
+    if readiness_low:
+        prerequisite_actions.append(
+            "Assign ownership, training, governance, and monitoring responsibility before implementation."
+        )
+
+    if sum([data_fragmented, workflow_missing, readiness_low]) >= 2:
+        return build_gated_result(
+            recommendation_label=ARCH_NOT_READY,
+            scores=scores,
+            answers=answers,
+            key_drivers=key_drivers,
+            exclusions=exclusions,
+            required_controls=required_controls,
+            prerequisite_actions=prerequisite_actions,
+            baseline_to_test="Reassess architecture after prerequisite work is completed",
+        )
+
     for q_key, answer in answers.items():
         deltas = SCORE_TABLES.get(q_key, {}).get(answer)
         if deltas:
             for arch, value in deltas.items():
                 scores[arch] += value
-        text = EXPLANATION_TEMPLATES.get(q_key, {}).get(answer)
-        if text:
-            key_drivers.append(text)
 
-    # Gates / exclusions
     risk_high = answers.get("q8_risk_exposure") == "high"
     deterministic_required = answers.get("q7_output_consistency") == "identical"
-    input_unstructured = answers.get("q5_input_type") == "unstructured"
-    input_mixed = answers.get("q5_input_type") == "mixed"
-    workflow_no = answers.get("q4_workflow_established") == "no"
-    workflow_not_mappable = answers.get("q4b_workflow_mappable") == "no"
+    decision_authority = answers.get("q8a_decision_authority")
+    no_override = answers.get("q8b_human_override") == "no"
+    explainability_required = answers.get("q9_explainability") == "required"
+    unstructured_input = answers.get("q5_input_type") == "unstructured"
+    mixed_input = answers.get("q5_input_type") == "mixed"
 
-    llm_final_blocked = False
-    if risk_high and deterministic_required:
-        llm_final_blocked = True
+    if answers.get("q8b_human_override") in {"always", "limited"}:
+        required_controls.append("Document human review and override procedures.")
+
+    if answers.get("q8c_user_training") != "planned":
+        required_controls.append("Create user training on appropriate use, limitations, and error handling.")
+
+    if answers.get("q10_monitoring") in {"some", "continuous"}:
+        required_controls.append("Define monitoring metrics, exception handling, and escalation ownership.")
+
+    if explainability_required:
+        required_controls.append("Maintain decision traces, audit logs, and documented explanation requirements.")
+
+    if risk_high:
+        required_controls.append("Require formal risk review before deployment.")
+
+    llm_final_blocked = (
+        risk_high
+        and decision_authority in {"execute", "decide"}
+    ) or (
+        deterministic_required
+        and decision_authority in {"execute", "decide"}
+    ) or (
+        no_override
+        and decision_authority in {"execute", "decide"}
+    )
+
+    if llm_final_blocked:
+        scores[ARCH_LLM] -= 6
         exclusions.append(
-            "LLM should not be used as the final decision-maker because the use case is both high risk and requires deterministic outputs."
+            "An LLM should not independently make or execute final consequential decisions under the selected control requirements."
         )
-        scores[ARCH_LLM] -= 2
         why_not[ARCH_LLM].append(
-            "The use case combines high risk with a requirement for identical outputs, which makes a standalone generative final-output approach a poor fit."
+            "The selected risk, determinism, or human-control conditions require a more controlled final decision path."
         )
 
-    rpa_blocked = False
-    if workflow_no or workflow_not_mappable:
-        rpa_blocked = True
-        exclusions.append(
-            "RPA-style automation is not recommended until the workflow can be clearly defined and mapped."
-        )
-        why_not[ARCH_AUTOMATION].append(
-            "Pure UI-driven automation depends on a stable, mappable workflow, which is not yet present here."
-        )
-
-    # Determine primary scores
-    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     primary_arch, primary_score = ranked[0]
     second_arch, second_score = ranked[1]
 
-    # Hybrid rules: close scores or LLM used only for interpretation
     hybrid_needed = False
-    hybrid_primary = None
-    hybrid_secondary = None
+    secondary = None
 
-    if llm_final_blocked and (input_unstructured or input_mixed):
-        hybrid_needed = True
-        hybrid_primary = ARCH_AUTOMATION if scores[ARCH_AUTOMATION] >= scores[ARCH_ML] else ARCH_ML
-        hybrid_secondary = ARCH_LLM
-        exclusions.append(
-            "If LLM is used here, it should be limited to interpretation, extraction, or summarization before deterministic validation."
+    if llm_final_blocked and (unstructured_input or mixed_input):
+        primary_arch = (
+            ARCH_AUTOMATION
+            if scores[ARCH_AUTOMATION] >= scores[ARCH_ML]
+            else ARCH_ML
         )
-
-    elif abs(primary_score - second_score) <= HYBRID_THRESHOLD and primary_arch != ARCH_NOT_READY and second_arch != ARCH_NOT_READY:
+        secondary = ARCH_LLM
         hybrid_needed = True
-        hybrid_primary = primary_arch
-        hybrid_secondary = second_arch
-
-    # Not-ready rule
-    data_fragmented = answers.get("q2_project_data_maturity") == "fragmented"
-    change_low = answers.get("q3_change_readiness") == "low"
-    if scores[ARCH_NOT_READY] >= max(scores[ARCH_AUTOMATION], scores[ARCH_ML], scores[ARCH_LLM]) or (
-        workflow_no and data_fragmented and change_low
-    ):
-        recommendation_label = ARCH_NOT_READY
-        primary = ARCH_NOT_READY
-        secondary = None
-        confidence = "High" if scores[ARCH_NOT_READY] >= primary_score else "Medium"
-        tradeoffs = TRADEOFFS[ARCH_NOT_READY]
-    elif hybrid_needed and hybrid_primary and hybrid_secondary:
-        recommendation_label = f"Hybrid: {hybrid_primary} + {hybrid_secondary}"
-        primary = hybrid_primary
-        secondary = hybrid_secondary
-        gap = abs(primary_score - second_score)
-        confidence = "High" if gap <= 1 else "Medium"
-        tradeoffs = TRADEOFFS[ARCH_HYBRID]
+        recommendation_label = f"{ARCH_HYBRID}: {ARCH_LLM} for interpretation + {primary_arch} for validated action"
+        required_controls.append(
+            "Limit generative output to extraction, drafting, or summarization before deterministic or human-approved action."
+        )
+    elif abs(primary_score - second_score) <= HYBRID_THRESHOLD:
+        hybrid_needed = True
+        secondary = second_arch
+        recommendation_label = f"{ARCH_HYBRID}: {primary_arch} + {second_arch}"
     else:
         recommendation_label = primary_arch
-        primary = primary_arch
-        secondary = None
-        gap = primary_score - second_score
-        confidence = "High" if gap >= 4 else "Medium" if gap >= 2 else "Low"
-        tradeoffs = TRADEOFFS[primary_arch]
 
-    if recommendation_label != ARCH_NOT_READY:
-        if ARCH_AUTOMATION != primary:
-            why_not[ARCH_AUTOMATION].append("Automation was not the top fit based on the current balance of workflow structure, input type, and output requirements.")
-        if ARCH_ML != primary:
-            why_not[ARCH_ML].append("Machine learning was not the top fit based on current data maturity, output constraints, or operating model requirements.")
-        if ARCH_LLM != primary and secondary != ARCH_LLM:
-            why_not[ARCH_LLM].append("A standalone LLM approach was not the top fit based on current determinism, risk, or explainability constraints.")
+    confidence = determine_confidence(primary_score, second_score, hybrid_needed)
+    baseline_to_test = determine_baseline(primary_arch, secondary)
 
-    resources = determine_resources(answers, recommendation_label)
-    phased_plan = determine_phased_plan(answers, recommendation_label)
+    for arch in FIT_ARCHITECTURES:
+        if arch == primary_arch or arch == secondary:
+            continue
+        why_not[arch].append(
+            f"{arch} was not the top fit based on the current balance of workflow structure, input type, and output requirements."
+        )
 
     return EvaluationResult(
         scores=scores,
-        primary=primary,
+        primary=primary_arch,
         secondary=secondary,
         recommendation_label=recommendation_label,
         confidence=confidence,
         key_drivers=dedupe_preserve_order(key_drivers)[:8],
         exclusions=dedupe_preserve_order(exclusions),
-        tradeoffs=tradeoffs,
-        resources=resources,
-        phased_plan=phased_plan,
+        required_controls=dedupe_preserve_order(required_controls),
+        prerequisite_actions=dedupe_preserve_order(prerequisite_actions),
+        baseline_to_test=baseline_to_test,
+        tradeoffs=TRADEOFFS[ARCH_HYBRID if hybrid_needed else primary_arch],
+        resources=determine_resources(answers, recommendation_label),
+        phased_plan=determine_phased_plan(answers, recommendation_label),
         why_not=why_not,
+    )
+
+
+def determine_confidence(primary_score: int, second_score: int, hybrid_needed: bool) -> str:
+    gap = primary_score - second_score
+    if hybrid_needed:
+        return "Medium"
+    if gap >= 4:
+        return "High"
+    if gap >= 2:
+        return "Medium"
+    return "Low"
+
+
+def determine_baseline(primary: str, secondary: Optional[str]) -> str:
+    if primary == ARCH_ANALYTICS:
+        return "Compare against the current reporting or manual decision process."
+    if primary == ARCH_AUTOMATION:
+        return "Compare deterministic workflow performance against the current manual process."
+    if primary == ARCH_ML:
+        return "Compare model performance against rules-based or descriptive analytics baselines."
+    if primary == ARCH_LLM:
+        return "Compare the LLM-assisted workflow against a structured template or deterministic alternative."
+    if secondary:
+        return "Compare the hybrid design against its simpler single-component alternative."
+    return "Define a measurable non-AI baseline before pilot testing."
+
+
+def build_gated_result(
+    recommendation_label: str,
+    scores: Dict[str, int],
+    answers: Dict[str, Any],
+    key_drivers: List[str],
+    exclusions: List[str],
+    required_controls: List[str],
+    prerequisite_actions: List[str],
+    baseline_to_test: str,
+) -> EvaluationResult:
+    return EvaluationResult(
+        scores=scores,
+        primary=recommendation_label,
+        secondary=None,
+        recommendation_label=recommendation_label,
+        confidence="High",
+        key_drivers=dedupe_preserve_order(key_drivers)[:8],
+        exclusions=dedupe_preserve_order(exclusions),
+        required_controls=dedupe_preserve_order(required_controls),
+        prerequisite_actions=dedupe_preserve_order(prerequisite_actions),
+        baseline_to_test=baseline_to_test,
+        tradeoffs=TRADEOFFS[recommendation_label],
+        resources=determine_resources(answers, recommendation_label),
+        phased_plan=determine_phased_plan(answers, recommendation_label),
+        why_not={
+            ARCH_ANALYTICS: [],
+            ARCH_AUTOMATION: [],
+            ARCH_ML: [],
+            ARCH_LLM: [],
+        },
     )
 
 
@@ -566,22 +792,40 @@ def determine_resources(answers: Dict[str, Any], recommendation_label: str) -> L
 
 
 def determine_phased_plan(answers: Dict[str, Any], recommendation_label: str) -> List[str]:
-    phases: List[str] = []
+    if recommendation_label == ARCH_PROCESS:
+        return [
+            "Phase 0 - Clarify the problem, decision owner, current workflow, and measurable baseline.",
+            "Phase 1 - Test whether process or manual improvements resolve the primary issue.",
+            "Phase 2 - Reassess whether analytics, automation, or AI is still needed.",
+        ]
+
     if recommendation_label == ARCH_NOT_READY:
-        phases.extend([
-            "Phase 0 — Standardize the workflow, clarify ownership, and address obvious data gaps.",
-            "Phase 1 — Re-evaluate the use case once process structure, data readiness, and governance improve.",
-            "Phase 2 — Pilot the simplest viable automation approach before considering more advanced AI.",
-        ])
-        return phases
+        return [
+            "Phase 0 - Address workflow, data, ownership, training, and governance prerequisites.",
+            "Phase 1 - Establish a measurable baseline and confirm implementation readiness.",
+            "Phase 2 - Reassess the simplest viable architecture before piloting.",
+        ]
 
-    needs_prereqs = answers.get("q4_workflow_established") in {"no", "undocumented"} or answers.get("q2_project_data_maturity") in {"fragmented", "transform"}
-    if needs_prereqs:
-        phases.append("Phase 0 — Complete prerequisite work: process mapping, data cleanup, ownership, and monitoring definitions.")
+    if recommendation_label == ARCH_ANALYTICS:
+        return [
+            "Phase 1 - Build a decision-support baseline using trusted metrics, reporting, or dashboards.",
+            "Phase 2 - Measure whether analytics alone adequately improves decisions or workflow performance.",
+            "Phase 3 - Consider automation or AI only if documented gaps remain.",
+        ]
 
-    phases.append("Phase 1 — Build a constrained MVP with clear success metrics, audit logging, and exception handling.")
-    phases.append("Phase 2 — Pilot with a limited user group and monitor quality, cost, and operational burden.")
-    phases.append("Phase 3 — Scale only after the architecture performs reliably under governance controls.")
+    phases = []
+
+    if answers.get("q2_project_data_maturity") in {"fragmented", "transform"}:
+        phases.append(
+            "Phase 0 - Complete data preparation, documentation, and quality validation."
+        )
+
+    phases.extend([
+        "Phase 1 - Build a constrained MVP with defined success metrics, audit logging, and exception handling.",
+        "Phase 2 - Pilot against a simpler comparison baseline and evaluate quality, cost, user reliance, and operational burden.",
+        "Phase 3 - Scale only after governance controls and measurable benefits are demonstrated.",
+    ])
+
     return phases
 
 
@@ -625,7 +869,20 @@ def review_layout(answers: Dict[str, Any]) -> dbc.Container:
         selected = answers.get(q_key)
         label = next((lbl for val, lbl in question["options"] if val == selected), "Not answered")
         rows.append(
-            html.Tr([html.Td(question["title"]), html.Td(label)])
+            html.Tr([
+                html.Td(question["title"]),
+                html.Td(label),
+                html.Td(
+                    dbc.Button(
+                        "Edit",
+                        id={"type": "edit-answer", "question": q_key},
+                        color="primary",
+                        outline=True,
+                        size="sm",
+                    ),
+                    style={"textAlign": "right"},
+                ),
+            ])
         )
 
     return dbc.Container(
@@ -633,7 +890,10 @@ def review_layout(answers: Dict[str, Any]) -> dbc.Container:
             html.H2("Review Your Inputs", className="mt-4"),
             html.P("Confirm your answers before generating the recommendation."),
             dbc.Table(
-                [html.Thead(html.Tr([html.Th("Question"), html.Th("Selected Answer")])), html.Tbody(rows)],
+                [
+                    html.Thead(html.Tr([html.Th("Question"), html.Th("Selected Answer"), html.Th("")])),
+                    html.Tbody(rows),
+                ],
                 bordered=True,
                 hover=True,
                 responsive=True,
@@ -656,7 +916,7 @@ def score_bars(scores: Dict[str, int]) -> html.Div:
     max_adjusted = max(adjusted.values()) if adjusted else 1
 
     cards = []
-    for arch in [ARCH_AUTOMATION, ARCH_ML, ARCH_LLM, ARCH_NOT_READY]:
+    for arch in FIT_ARCHITECTURES:
         value = scores[arch]
         pct = int((adjusted[arch] / max_adjusted) * 100)
         cards.append(
@@ -703,7 +963,7 @@ def results_layout(result: EvaluationResult, answers: Dict[str, Any]) -> dbc.Con
                     dbc.Col(
                         dbc.Card(
                             dbc.CardBody([
-                                html.H4("Architecture Fit Scores"),
+                                html.H4("Candidate Architecture Fit"),
                                 score_bars(result.scores),
                             ])
                         ),
@@ -729,6 +989,37 @@ def results_layout(result: EvaluationResult, answers: Dict[str, Any]) -> dbc.Con
                             dbc.CardBody([
                                 html.H4("Exclusions and Constraints"),
                                 html.Ul([html.Li(x) for x in result.exclusions]) if result.exclusions else html.P("No hard exclusions were triggered."),
+                            ])
+                        ),
+                        md=6,
+                    ),
+                ],
+                className="g-3 mt-1",
+            ),
+
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dbc.Card(
+                            dbc.CardBody([
+                                html.H4("Required Controls"),
+                                html.Ul([html.Li(x) for x in result.required_controls])
+                                if result.required_controls
+                                else html.P("No additional controls were triggered beyond standard project governance."),
+                            ])
+                        ),
+                        md=6,
+                    ),
+                    dbc.Col(
+                        dbc.Card(
+                            dbc.CardBody([
+                                html.H4("Prerequisites & Baseline"),
+                                html.Ul([html.Li(x) for x in result.prerequisite_actions])
+                                if result.prerequisite_actions
+                                else html.P("No blocking prerequisite actions were triggered."),
+                                html.Hr(),
+                                html.Div("Recommended comparison baseline", className="fw-bold"),
+                                html.P(result.baseline_to_test),
                             ])
                         ),
                         md=6,
@@ -792,7 +1083,7 @@ def results_layout(result: EvaluationResult, answers: Dict[str, Any]) -> dbc.Con
     )
 
 
-def question_card(q_key: str, answers: Dict[str, Any], current_index: int, total_questions: int) -> dbc.Container:
+def question_card(q_key: str, answers: Dict[str, Any], current_index: int, total_questions: int, edit_mode: bool = False) -> dbc.Container:
     q = QUESTIONS[q_key]
     progress_overall = int((current_index / total_questions) * 100)
     current_section = q["section"]
@@ -824,7 +1115,7 @@ def question_card(q_key: str, answers: Dict[str, Any], current_index: int, total
             dbc.Row(
                 [
                     dbc.Col(dbc.Button("Back", id="btn-back", color="secondary", outline=True)),
-                    dbc.Col(dbc.Button("Next", id="btn-next", color="primary"), style={"textAlign": "right"}),
+                    dbc.Col(dbc.Button("Save" if edit_mode else "Next", id="btn-next", color="primary"), style={"textAlign": "right"}),
                 ],
                 className="mt-4",
             ),
@@ -837,13 +1128,18 @@ def question_card(q_key: str, answers: Dict[str, Any], current_index: int, total
 # Dash app
 # =========================================================
 
-app: Dash = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app: Dash = dash.Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    suppress_callback_exceptions=True,
+)
 app.title = APP_TITLE
 server = app.server
 
 app.layout = html.Div(
     [
         dcc.Store(id="store-answers", data={}),
+        dcc.Store(id="store-current-answer", data=None),
         dcc.Store(id="store-page", data={"mode": "welcome", "question_idx": 0}),
         html.Div(id="page-content"),
     ]
@@ -851,53 +1147,80 @@ app.layout = html.Div(
 
 
 @app.callback(
-    Output("store-page", "data"),
-    Output("store-answers", "data"),
-    Input("btn-start", "n_clicks"),
-    Input("btn-next", "n_clicks"),
-    Input("btn-back", "n_clicks"),
-    Input("btn-submit", "n_clicks"),
-    Input("btn-restart", "n_clicks"),
-    State("store-page", "data"),
-    State("store-answers", "data"),
-    State("current-answer", "value"),
+    Output("store-current-answer", "data"),
+    Input("current-answer", "value", allow_optional=True),
     prevent_initial_call=True,
 )
-def handle_navigation(start, next_clicks, back_clicks, submit_clicks, restart_clicks, page_state, answers, current_answer):
+def store_current_answer(current_answer):
+    return current_answer
+
+
+@app.callback(
+    Output("store-page", "data"),
+    Output("store-answers", "data"),
+    Input("btn-start", "n_clicks", allow_optional=True),
+    Input("btn-next", "n_clicks", allow_optional=True),
+    Input("btn-back", "n_clicks", allow_optional=True),
+    Input("btn-submit", "n_clicks", allow_optional=True),
+    Input("btn-restart", "n_clicks", allow_optional=True),
+    Input({"type": "edit-answer", "question": ALL}, "n_clicks", allow_optional=True),
+    State("store-page", "data"),
+    State("store-answers", "data"),
+    State("store-current-answer", "data"),
+    prevent_initial_call=True,
+)
+def handle_navigation(start, next_clicks, back_clicks, submit_clicks, restart_clicks, edit_clicks, page_state, answers, current_answer):
     answers = answers or {}
     page_state = page_state or {"mode": "welcome", "question_idx": 0}
 
-    triggered = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else None
+    triggered_raw = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else None
+    try:
+        triggered = json.loads(triggered_raw) if triggered_raw and triggered_raw.startswith("{") else triggered_raw
+    except json.JSONDecodeError:
+        triggered = triggered_raw
+
     visible_qs = all_visible_questions(answers)
     mode = page_state.get("mode", "welcome")
     idx = page_state.get("question_idx", 0)
+
+    if isinstance(triggered, dict) and triggered.get("type") == "edit-answer":
+        question_key = triggered.get("question")
+        if question_key in visible_qs:
+            return {"mode": "question", "question_idx": visible_qs.index(question_key), "return_to_review": True}, answers
+        return no_update, answers
 
     if triggered == "btn-restart":
         return {"mode": "welcome", "question_idx": 0}, {}
 
     if triggered == "btn-start":
-        return {"mode": "question", "question_idx": 0}, answers
+        return {"mode": "question", "question_idx": 0, "return_to_review": False}, answers
 
-    if mode == "question" and visible_qs and 0 <= idx < len(visible_qs) and current_answer is not None:
+    if mode == "question" and visible_qs and 0 <= idx < len(visible_qs):
         q_key = visible_qs[idx]
-        answers = {**answers, q_key: current_answer}
-        visible_qs = all_visible_questions(answers)
+        answer_to_save = current_answer if current_answer is not None else answers.get(q_key)
+        if answer_to_save is not None:
+            answers = {**answers, q_key: answer_to_save}
+            visible_qs = all_visible_questions(answers)
 
     if triggered == "btn-next":
         if mode == "question":
+            if page_state.get("return_to_review"):
+                return {"mode": "review", "question_idx": idx, "return_to_review": False}, answers
             if idx + 1 < len(visible_qs):
-                return {"mode": "question", "question_idx": idx + 1}, answers
-            return {"mode": "review", "question_idx": idx}, answers
+                return {"mode": "question", "question_idx": idx + 1, "return_to_review": False}, answers
+            return {"mode": "review", "question_idx": idx, "return_to_review": False}, answers
         return no_update, answers
 
     if triggered == "btn-back":
         if mode == "results":
             return {"mode": "review", "question_idx": max(len(visible_qs) - 1, 0)}, answers
         if mode == "review":
-            return {"mode": "question", "question_idx": max(len(visible_qs) - 1, 0)}, answers
+            return {"mode": "question", "question_idx": max(len(visible_qs) - 1, 0), "return_to_review": False}, answers
         if mode == "question":
+            if page_state.get("return_to_review"):
+                return {"mode": "review", "question_idx": idx, "return_to_review": False}, answers
             if idx > 0:
-                return {"mode": "question", "question_idx": idx - 1}, answers
+                return {"mode": "question", "question_idx": idx - 1, "return_to_review": False}, answers
             return {"mode": "welcome", "question_idx": 0}, answers
 
     if triggered == "btn-submit":
@@ -933,8 +1256,8 @@ def render_page(page_state, answers):
 
     idx = max(0, min(idx, len(visible_qs) - 1))
     q_key = visible_qs[idx]
-    return question_card(q_key, answers, idx + 1, len(visible_qs))
+    return question_card(q_key, answers, idx + 1, len(visible_qs), bool(page_state.get("return_to_review")))
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)

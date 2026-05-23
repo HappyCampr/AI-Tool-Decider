@@ -1,0 +1,5 @@
+project_id            = "my-project-id"
+region                = "us-central1"
+image                 = "us-central1-docker.pkg.dev/my-project/ai-tool-decider/ai-tool-decider:<tag>"
+service_name          = "ai-tool-decider"
+allow_unauthenticated = true

@@ -1,0 +1,10 @@
+.git
+.gitignore
+.terraform
+infra/.terraform
+infra/.terraform.lock.hcl
+__pycache__
+*.pyc
+.venv
+venv
+env
