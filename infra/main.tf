@@ -16,11 +16,6 @@ resource "google_cloud_run_v2_service" "app" {
       ports {
         container_port = var.container_port
       }
-
-      env {
-        name  = "PORT"
-        value = tostring(var.container_port)
-      }
     }
   }
 }

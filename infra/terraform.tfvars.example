@@ -1,5 +1,5 @@
-project_id            = "my-project-id"
+project_id            = "happycamper-487003"
 region                = "us-central1"
-image                 = "us-central1-docker.pkg.dev/my-project/ai-tool-decider/ai-tool-decider:<tag>"
+image                 = "us-central1-docker.pkg.dev/happycamper-487003/ai-tool-decider/ai-tool-decider:<tag>"
 service_name          = "ai-tool-decider"
 allow_unauthenticated = true
